@@ -13,6 +13,11 @@ Comprender y experimentar el funcionamiento básico de una blockchain.
 - Entender y navegar un explorador de bloques (Etherscan, Solscan).
 - Enviar y rastrear una transacción real en testnet.
 - Visualizar cómo se agregan bloques y cómo se enlazan por hash.
+- Faucet: http://cloud.google.com/application/web3/faucet/ethereum
+- Billetera ETH para testnet: https://metamask.io/es
+- Explorador BTC: https://blockstream.info/
+- Explorador ETH: https://etherscan.io/
+- Explorador Solana: https://solscan.io/
 
 Material complementario:
 
