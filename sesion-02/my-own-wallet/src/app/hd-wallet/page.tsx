@@ -1,7 +1,15 @@
 "use client";
 
+// Vista de HD Wallet (UI) + integración con la lógica separada
+// -------------------------------------------------------------
+// - Esta vista maneja sólo estado y eventos de UI.
+// - La generación de la frase mnemónica (BIP-39) y la derivación de cuentas
+//   según BIP-44 se delega al módulo src/lib/wallet/hd.ts para explicar los
+//   conceptos de forma más clara en el curso.
+
 import Link from "next/link";
 import { useState } from "react";
+import { createMnemonic, deriveAccount } from "../../lib/wallet/hd";
 
 type AccountRow = {
   address: string;
@@ -12,13 +20,17 @@ type AccountRow = {
 type CopiedKey = string | null; // e.g. "mnemonic", "address-0", "pk-0"
 
 export default function HDWalletPage() {
+  // Estado de la frase semilla y visibilidad
   const [mnemonic, setMnemonic] = useState("");
   const [showMnemonic, setShowMnemonic] = useState(false);
-  const [accounts, setAccounts] = useState<AccountRow[]>([
-    { address: "", privateKey: "", showPk: false },
-  ]);
+
+  // Estado de cuentas derivadas (address + clave). Cada fila mantiene un toggle de visibilidad de PK.
+  const [accounts, setAccounts] = useState<AccountRow[]>([]);
+
+  // Estado para notificación temporal de copiado
   const [copied, setCopied] = useState<{ key: CopiedKey; ts: number }>({ key: null, ts: 0 });
 
+  // Copiar al portapapeles (para la demo en clase)
   const copyToClipboard = async (text: string, key: CopiedKey) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -29,22 +41,62 @@ export default function HDWalletPage() {
     }
   };
 
-  const addAccount = () => {
-    setAccounts((prev) => [...prev, { address: "", privateKey: "", showPk: false }]);
+  // Asegura que exista una frase semilla: si no hay, genera una nueva y la guarda.
+  const ensureMnemonic = (): string => {
+    if (mnemonic.trim()) return mnemonic.trim();
+    const phrase = createMnemonic();
+    setMnemonic(phrase);
+    return phrase;
   };
 
+  // Genera una nueva frase (BIP-39) y deriva la primera cuenta (índice 0).
+  const handleGenerateMnemonic = () => {
+    try {
+      const phrase = createMnemonic();
+      setMnemonic(phrase);
+    } catch (e: any) {
+      alert(
+        `Ocurrió un error al generar/derivar la primera cuenta.\n` +
+          `Asegúrate de que la mnemónica sea válida (12, 15, 18, 21 o 24 palabras en inglés) y pertenezca al wordlist en inglés.\n` +
+          (e?.message ? `Detalle: ${e.message}` : "")
+      );
+    }
+  };
+
+  // Agrega una cuenta derivada más, usando la ruta m/44'/60'/0'/0/i
+  const addAccount = () => {
+    try {
+      const phrase = ensureMnemonic();
+      const index = accounts.length; // siguiente índice consecutivo
+      const derived = deriveAccount(phrase, index);
+      setAccounts((prev) => [
+        ...prev,
+        { address: derived.address, privateKey: derived.privateKey, showPk: false },
+      ]);
+    } catch (e: any) {
+      alert(
+        `No fue posible derivar la cuenta #${accounts.length + 1}.\n` +
+          `Verifica que la frase mnemónica tenga 12, 15, 18, 21 o 24 palabras y use el wordlist en inglés.\n` +
+          (e?.message ? `Detalle: ${e.message}` : "")
+      );
+    }
+  };
+
+  // Toggle de visibilidad de la clave privada para una fila
   const togglePk = (idx: number) => {
     setAccounts((prev) => prev.map((acc, i) => (i === idx ? { ...acc, showPk: !acc.showPk } : acc)));
   };
 
+  // Permite editar manualmente los campos (didáctico), aunque lo derivado viene de la seed
   const updateAccount = (idx: number, field: keyof AccountRow, value: string | boolean) => {
     setAccounts((prev) => prev.map((acc, i) => (i === idx ? { ...acc, [field]: value } as AccountRow : acc)));
   };
 
+  // Limpia todo el estado (UI)
   const clearAll = () => {
     setMnemonic("");
     setShowMnemonic(false);
-    setAccounts([{ address: "", privateKey: "", showPk: false }]);
+    setAccounts([]);
   };
 
   return (
@@ -84,18 +136,30 @@ export default function HDWalletPage() {
                   showMnemonic ? "blur-0" : "blur-[3px]"
                 }`}
                 value={mnemonic}
-                onChange={(e) => setMnemonic(e.target.value)}
+                onChange={(e) => {
+                  // Si el usuario escribe manualmente una seed, limpiamos las cuentas
+                  setMnemonic(e.target.value);
+                  setAccounts([]);
+                }}
                 placeholder="seed phrase de ejemplo: word1 word2 word3 …"
                 spellCheck={false}
                 autoComplete="off"
               />
-              <button
-                onClick={() => copyToClipboard(mnemonic, "mnemonic")}
-                className="mt-1 rounded-xl border border-cyan-300/30 bg-cyan-400/10 px-3 py-2 text-sm font-medium text-cyan-200 transition hover:bg-cyan-400/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
-                aria-label="Copiar frase semilla"
-              >
-                {copied.key === "mnemonic" ? "Copiado" : "Copiar"}
-              </button>
+              <div className="mt-1 flex flex-col gap-2">
+                <button
+                  onClick={() => copyToClipboard(mnemonic, "mnemonic")}
+                  className="rounded-xl border border-cyan-300/30 bg-cyan-400/10 px-3 py-2 text-sm font-medium text-cyan-200 transition hover:bg-cyan-400/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
+                  aria-label="Copiar frase semilla"
+                >
+                  {copied.key === "mnemonic" ? "Copiado" : "Copiar"}
+                </button>
+                <button
+                  onClick={handleGenerateMnemonic}
+                  className="rounded-xl bg-emerald-500 px-3 py-2 text-sm font-medium text-emerald-950 shadow-lg transition hover:bg-emerald-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
+                >
+                  Generar frase (BIP-39)
+                </button>
+              </div>
             </div>
             <p className="mt-2 text-xs text-white/60">
               Guarda tu frase semilla de forma offline (papel o hardware). Cualquiera con acceso a ella controla tus fondos.
@@ -182,7 +246,7 @@ export default function HDWalletPage() {
             </div>
 
             <p className="mt-4 text-xs text-white/60">
-              Nota: Esta es una demo educativa. Usa derivación HD con ethers.js + bip39.
+              Nota: Esta es una demo educativa. Derivación realizada con ethers.js (BIP-39/BIP-44).
             </p>
           </section>
 

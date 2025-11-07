@@ -1,28 +1,65 @@
 "use client";
 
+// Vista de Cuenta simple (UI) + integración con la lógica separada
+// ----------------------------------------------------------------
+// - Esta vista sólo maneja estado y eventos de UI.
+// - La generación/validación de claves se delega al módulo src/lib/wallet/simple.ts
+//   para explicar mejor los conceptos en un curso (separación de lógica y presentación).
+
 import Link from "next/link";
 import { useState } from "react";
+import { createSimpleWallet, addressFromPrivateKey, isValidPrivateKey } from "../../lib/wallet/simple";
 
 export default function SimpleAccountPage() {
+  // Estado local de la vista. En un caso real, podrías manejarlo con algún store seguro
+  // o nunca persistir estos datos en el navegador. Aquí es SOLO con fines educativos.
   const [address, setAddress] = useState("");
   const [privateKey, setPrivateKey] = useState("");
   const [showPk, setShowPk] = useState(false);
   const [copied, setCopied] = useState<{ field: "address" | "pk" | null; ts: number }>({ field: null, ts: 0 });
 
+  // Copia al portapapeles (sólo para facilitar la demo en clase).
   const copyToClipboard = async (text: string, field: "address" | "pk") => {
     try {
       await navigator.clipboard.writeText(text);
       setCopied({ field, ts: Date.now() });
       setTimeout(() => setCopied({ field: null, ts: 0 }), 1500);
     } catch (_) {
-      // noop
+      // Si falla, ignoramos para no romper la experiencia.
     }
   };
 
+  // Limpia la UI. NO borra nada persistente (no hay almacenamiento en este ejemplo).
   const clearAll = () => {
     setAddress("");
     setPrivateKey("");
     setShowPk(false);
+  };
+
+  // Genera una cuenta simple aleatoria usando ethers.js (ver módulo simple.ts)
+  const handleGenerate = () => {
+    const w = createSimpleWallet();
+    setAddress(w.address);
+    setPrivateKey(w.privateKey);
+    setShowPk(false);
+  };
+
+  // Cuando el usuario edita la clave privada, al salir del input intentamos
+  // calcular la address correspondiente (si la PK es válida).
+  const handlePkBlur: React.FocusEventHandler<HTMLInputElement> = (e) => {
+    const pk = e.currentTarget.value.trim();
+    if (!pk) return;
+    if (!isValidPrivateKey(pk)) {
+      // Alerta educativa para explicar el error de formato/longitud.
+      alert("La clave privada no es válida. Debe ser hex (64 bytes) con o sin prefijo 0x.");
+      return;
+    }
+    try {
+      const addr = addressFromPrivateKey(pk);
+      setAddress(addr);
+    } catch (err) {
+      // Si algo raro ocurre, lo dejamos en silencio para no romper la demo.
+    }
   };
 
   return (
@@ -45,6 +82,16 @@ export default function SimpleAccountPage() {
 
         <div className="mx-auto w-full max-w-2xl rounded-2xl border border-white/10 bg-white/5 p-6 text-left shadow-2xl backdrop-blur supports-[backdrop-filter]:bg-white/10 sm:p-8">
           <div className="space-y-6">
+            {/* Acción principal: generar con lógica separada */}
+            <div className="flex justify-end">
+              <button
+                onClick={handleGenerate}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-medium text-emerald-950 shadow-lg transition hover:translate-y-[-1px] hover:bg-emerald-400 hover:shadow-emerald-500/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
+              >
+                Generar cuenta aleatoria
+              </button>
+            </div>
+
             {/* Address */}
             <div>
               <label className="mb-2 block text-sm font-medium text-white/80">Ethereum Address</label>
@@ -86,6 +133,7 @@ export default function SimpleAccountPage() {
                   type={showPk ? "text" : "password"}
                   value={privateKey}
                   onChange={(e) => setPrivateKey(e.target.value)}
+                  onBlur={handlePkBlur}
                   placeholder="Clave privada (0x…)"
                   inputMode="text"
                   spellCheck={false}

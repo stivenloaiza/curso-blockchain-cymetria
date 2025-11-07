@@ -10,6 +10,8 @@ Entender y practicar cómo se protegen las transacciones mediante criptografía.
 - Wallets: hot vs cold, seed phrase, seguridad.
 
 ## Práctica
+- Imagen criptografía asimétrica: https://upload.wikimedia.org/wikipedia/commons/d/dc/Firma_Digital_Asim%C3%A9trica.png
+- Hash online: https://emn178.github.io/online-tools/sha256.html
 - Generar pares de claves y direcciones con herramientas en Javascript.
 - Analizar una wallet (MetaMask).
 - Replicar base de MetaMask en Javascript
