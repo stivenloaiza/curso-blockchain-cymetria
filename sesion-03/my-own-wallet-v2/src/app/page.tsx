@@ -35,6 +35,13 @@ export default function Home() {
               <span>Crear HD Wallet ETH</span>
               <span className="transition-transform group-hover:translate-x-0.5">⚡</span>
             </Link>
+            <Link
+              href="/transactions"
+              className="group inline-flex items-center justify-center gap-2 rounded-xl border border-indigo-300/30 bg-white/0 px-5 py-4 text-base font-medium text-indigo-200 shadow-lg shadow-indigo-500/10 transition hover:-translate-y-0.5 hover:bg-indigo-400/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 sm:text-lg"
+            >
+              <span>Transacciones</span>
+              <span className="transition-transform group-hover:translate-x-0.5">🧾</span>
+            </Link>
           </div>
 
           <p className="mt-4 text-xs text-white/60">
