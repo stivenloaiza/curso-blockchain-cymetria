@@ -13,6 +13,10 @@ Crear tus propios tokens y comprender los estándares más usados.
 - Crear y desplegar tu propio token ERC-20 en testnet.
 - Crear y mintear un NFT ERC-721.
 
+### Guías específicas
+- Práctica paso a paso: ERC‑20 y ERC‑721 en Remix: [practica-remix-erc20-erc721.md](./practica-remix-erc20-erc721.md)
+- Estándares ERC y tokenomics: [erc-standards-y-tokenomics.md](./erc-standards-y-tokenomics.md)
+
 Material complementario:
 
 - Ethereum Docs — Estándares de tokens (visión general: ERC‑20, ERC‑721, ERC‑1155): https://ethereum.org/en/developers/docs/standards/tokens/
