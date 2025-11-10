@@ -14,6 +14,11 @@ Aprender a escribir, desplegar y probar contratos inteligentes.
 - Desplegarlo en testnet con MetaMask + Remix.
 - Interactuar con el contrato (lectura y escritura de datos).
 
+### Guías específicas
+- Introducción técnica a Smart Contracts: [intro-smart-contracts.md](./intro-smart-contracts.md)
+- Guía detallada de Solidity: [solidity-detallado.md](./solidity-detallado.md)
+- Despliegue y ejecución con Remix: [remix-despliegue-y-ejecucion.md](./remix-despliegue-y-ejecucion.md)
+
 Material complementario:
 
 - Ethereum Docs — Smart contracts (conceptos y casos de uso): https://ethereum.org/en/developers/docs/smart-contracts/
