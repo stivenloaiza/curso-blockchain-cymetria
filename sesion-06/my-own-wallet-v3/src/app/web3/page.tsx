@@ -10,8 +10,29 @@
 // Nota: La vista usa funciones de la lib (ethers v6) y maneja estados/errores de forma pedagógica.
 
 import Link from "next/link";
-import { useState } from "react";
-import { readErc20Balance, transferErc20 } from "../../lib/web3/erc20";
+import { useEffect, useMemo, useState } from "react";
+import { readErc20Balance, transferErc20, getBrowserProvider } from "../../lib/web3/erc20";
+
+// Presets de red (visual) para mantener consistencia con la vista de Transacciones
+// Nota: En esta página la lógica real usa la red activa de la wallet (BrowserProvider).
+const NETWORK_PRESETS = [
+  {
+    key: "mainnet",
+    name: "Ethereum Mainnet",
+    chainId: 1,
+    defaultRpc: "https://ethereum.publicnode.com",
+    explorer: "https://etherscan.io",
+  },
+  {
+    key: "sepolia",
+    name: "Sepolia Testnet",
+    chainId: 11155111,
+    defaultRpc: "https://ethereum-sepolia-rpc.publicnode.com",
+    explorer: "https://sepolia.etherscan.io",
+  },
+] as const;
+
+type PresetKey = typeof NETWORK_PRESETS[number]["key"];
 
 export default function Web3Erc20Page() {
   // Estado local para los formularios (UI) y estados de red
@@ -31,6 +52,56 @@ export default function Web3Erc20Page() {
   const [amount, setAmount] = useState(""); // Monto en unidades humanas (por ejemplo, USDC con 6 decimales)
   const [transferNote, setTransferNote] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+
+  // Selector de red (visual) y estado de la wallet
+  const [preset, setPreset] = useState<PresetKey>("sepolia");
+  const [rpcUrl, setRpcUrl] = useState(
+    NETWORK_PRESETS.find((p) => p.key === "sepolia")!.defaultRpc
+  );
+  useEffect(() => {
+    const p = NETWORK_PRESETS.find((x) => x.key === preset)!;
+    setRpcUrl(p.defaultRpc);
+  }, [preset]);
+  const selectedPreset = useMemo(
+    () => NETWORK_PRESETS.find((x) => x.key === preset)!,
+    [preset]
+  );
+  const explorerBase = useMemo(() => selectedPreset?.explorer, [selectedPreset]);
+
+  const [checkingNet, setCheckingNet] = useState(false);
+  const [walletNet, setWalletNet] = useState<{ name?: string; chainId?: number } | null>(null);
+  const [netError, setNetError] = useState<string | null>(null);
+
+  const checkWalletNetwork = async () => {
+    setCheckingNet(true);
+    setNetError(null);
+    try {
+      const provider = getBrowserProvider();
+      const net = await provider.getNetwork();
+      setWalletNet({ name: String(net.name), chainId: Number(net.chainId) });
+    } catch (e: any) {
+      setNetError(e?.message || "No se pudo leer la red desde la wallet.");
+      setWalletNet(null);
+    } finally {
+      setCheckingNet(false);
+    }
+  };
+
+  const switchWalletNetwork = async () => {
+    try {
+      const provider = getBrowserProvider();
+      const hexChain = "0x" + Number(selectedPreset.chainId).toString(16);
+      await provider.send("wallet_switchEthereumChain", [{ chainId: hexChain }]);
+      await checkWalletNetwork();
+    } catch (e: any) {
+      setNetError(e?.message || "No se pudo solicitar el cambio de red.");
+    }
+  };
+
+  const mismatch =
+    walletNet?.chainId !== undefined &&
+    selectedPreset?.chainId !== undefined &&
+    Number(walletNet.chainId) !== Number(selectedPreset.chainId);
 
   // Handler: consultar saldo real usando la lógica de lib/web3/erc20
   const handleCheckBalance = async (e: React.FormEvent) => {
@@ -93,8 +164,78 @@ export default function Web3Erc20Page() {
           </p>
         </div>
 
-        {/* Contenedor principal con dos secciones */}
-        <div className="mx-auto w-full max-w-2xl rounded-2xl border border-white/10 bg-white/5 p-6 text-left shadow-2xl backdrop-blur supports-[backdrop-filter]:bg-white/10 sm:p-8">
+        {/* Contenedor principal: Red de conexión + Secciones ERC-20 */}
+        <div className="mx-auto w-full max-w-2xl space-y-8">
+          {/* Card: Red de conexión (visual, la lógica usa la red activa de la wallet) */}
+          <section className="rounded-2xl border border-white/10 bg-white/5 p-6 text-left shadow-2xl backdrop-blur supports-[backdrop-filter]:bg-white/10 sm:p-8">
+            <h2 className="text-lg font-semibold text-white">0) Red de conexión</h2>
+            <p className="mt-1 text-sm text-white/70">
+              Esta vista usa la red activa de tu wallet (MetaMask, Rabby). El selector es educativo y permite comprobar o solicitar el cambio de red.
+            </p>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="mb-2 block text-sm font-medium text-white/80">Preset</label>
+                <select
+                  value={preset}
+                  onChange={(e) => setPreset(e.target.value as PresetKey)}
+                  className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white/90 outline-none transition focus:ring-2 focus:ring-emerald-300/50"
+                >
+                  {NETWORK_PRESETS.map((p) => (
+                    <option key={p.key} value={p.key}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-white/80">RPC URL (educativo)</label>
+                <input
+                  value={rpcUrl}
+                  onChange={(e) => setRpcUrl(e.target.value)}
+                  placeholder="https://…"
+                  className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white/90 placeholder-white/40 outline-none transition focus:ring-2 focus:ring-emerald-300/50"
+                />
+                <p className="mt-1 text-xs text-white/50">En esta página no se usa directamente; la red real es la de la wallet.</p>
+              </div>
+            </div>
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="text-sm text-white/70">
+                {walletNet?.chainId ? (
+                  <span>
+                    Wallet en chainId <span className="font-mono">{walletNet.chainId}</span> {walletNet?.name ? `(${walletNet.name})` : ""}
+                  </span>
+                ) : (
+                  <span>Wallet no verificada aún</span>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={checkWalletNetwork}
+                  disabled={checkingNet}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-medium text-emerald-950 shadow-lg transition hover:translate-y-[-1px] hover:bg-emerald-400 hover:shadow-emerald-500/30 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
+                >
+                  {checkingNet ? "Comprobando…" : "Comprobar red"}
+                </button>
+                {mismatch && (
+                  <button
+                    type="button"
+                    onClick={switchWalletNetwork}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/0 px-4 py-2 text-sm font-medium text-white/80 transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+                  >
+                    Cambiar wallet a {selectedPreset.name}
+                  </button>
+                )}
+              </div>
+            </div>
+            {mismatch && (
+              <p className="mt-3 text-sm text-amber-300">La red seleccionada y la red activa de la wallet no coinciden. Cambia de red para evitar errores como BAD_DATA.</p>
+            )}
+            {netError && (
+              <p className="mt-3 text-sm text-red-300">{netError}</p>
+            )}
+          </section>
+
+          {/* Card: ERC‑20 (Consulta + Transferencia) */}
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-left shadow-2xl backdrop-blur supports-[backdrop-filter]:bg-white/10 sm:p-8">
           {/* Sección 1: Consultar saldo */}
           <section aria-labelledby="balance-section">
             <h2 id="balance-section" className="text-lg font-semibold text-white">
@@ -258,6 +399,7 @@ export default function Web3Erc20Page() {
             </form>
           </section>
         </div>
+          </div>
 
         {/* Navegación inferior */}
         <div className="flex items-center gap-3 text-sm text-white/70">

@@ -80,16 +80,30 @@ export async function readErc20Balance(tokenAddress: string, holder: string): Pr
   if (!isAddress(holder)) throw new Error("La dirección a consultar no es válida.");
 
   const provider = getBrowserProvider(); // sólo lectura, no pide permiso
+
+  // Validación: confirmar que la dirección sea un contrato en la red activa de la wallet
+  const code = await provider.getCode(tokenAddress);
+  if (!code || code === "0x") {
+    throw new Error("La dirección indicada no es un contrato en la red activa de la wallet. Verifica la red y el token.");
+  }
+
   const contract = getErc20Contract(tokenAddress, provider);
 
-  const [raw, decimals, symbol] = await Promise.all([
-    contract.balanceOf(holder) as Promise<bigint>,
-    contract.decimals().catch(() => 18),
-    contract.symbol().catch(() => undefined),
-  ]);
+  try {
+    const [raw, decimals, symbol] = await Promise.all([
+      contract.balanceOf(holder) as Promise<bigint>,
+      contract.decimals().catch(() => 18),
+      contract.symbol().catch(() => undefined),
+    ]);
 
-  const formatted = formatUnits(raw, decimals ?? 18);
-  return { raw, decimals: Number(decimals ?? 18), formatted, symbol };
+    const formatted = formatUnits(raw, Number(decimals ?? 18));
+    return { raw, decimals: Number(decimals ?? 18), formatted, symbol };
+  } catch (e: any) {
+    if (e?.code === "BAD_DATA") {
+      throw new Error("El contrato no respondió como un ERC‑20 válido (balanceOf). Revisa que el token y la red sean correctos.");
+    }
+    throw e;
+  }
 }
 
 // Envía una transferencia ERC-20 usando la cuenta activa de la wallet
@@ -108,6 +122,13 @@ export async function transferErc20(
   const provider = getBrowserProvider();
   // aseguramos tener permiso de cuenta y obtenemos signer
   await provider.send("eth_requestAccounts", []);
+
+  // Validación: confirmar que la dirección sea un contrato en la red activa de la wallet
+  const code = await provider.getCode(tokenAddress);
+  if (!code || code === "0x") {
+    throw new Error("La dirección del token no es un contrato en la red activa de la wallet. Verifica la red y el token.");
+  }
+
   const signer = await provider.getSigner();
 
   const contract = getErc20Contract(tokenAddress, signer);
