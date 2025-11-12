@@ -55,10 +55,10 @@ export function deriveAccount(phrase: string, index: number, account = 0, change
   // BIP-39 → seed (512 bits). Usamos síncrono para simplicidad en UI.
   const seed = bip39.mnemonicToSeedSync(canonical);
 
-  const path = `m/44'/501'/${account}'/${change}/${index}`;
+  const path = `m/44'/501'/${account}'/${change}'/${index}'`;
   // Derivación ed25519 (ed25519-hd-key)
   const { key } = derivePath(path, seed.toString("hex")); // key: Buffer de 32 bytes
-
+console.log("key", key.toString("hex"));
   // En Solana, a partir de una seed de 32 bytes construimos el Keypair
   const kp = Keypair.fromSeed(key);
 
