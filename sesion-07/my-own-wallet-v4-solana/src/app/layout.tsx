@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "My Own Wallet",
-  description: "Crypto wallet simple de Ethereum — crea cuentas simples o HD (BIP-32/BIP-39)",
+  description: "Crypto wallet simple de Solana — crea cuentas simples o HD (BIP-39/BIP-44 ed25519)",
 };
 
 export default function RootLayout({

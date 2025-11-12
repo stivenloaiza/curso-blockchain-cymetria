@@ -107,11 +107,11 @@ export default function HDWalletPage() {
       <main className="relative z-10 mx-auto flex max-w-4xl flex-col items-center gap-8 px-6 pb-24 pt-24 text-center sm:pt-28">
         <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/10">
           <span>🌿</span>
-          <span>HD Wallet · Ethereum</span>
+          <span>HD Wallet · Solana</span>
         </div>
 
         <h1 className="text-balance bg-gradient-to-r from-emerald-300 via-cyan-300 to-indigo-300 bg-clip-text text-3xl font-semibold leading-tight text-transparent sm:text-4xl">
-          Crear HD Wallet ETH
+          Crear HD Wallet SOL
         </h1>
         <p className="text-pretty max-w-2xl text-sm leading-relaxed text-white/80 sm:text-base">
           Visualiza una frase semilla (BIP-39) y múltiples cuentas derivadas. <span className="font-semibold text-white">No compartas</span> tu frase ni claves privadas.

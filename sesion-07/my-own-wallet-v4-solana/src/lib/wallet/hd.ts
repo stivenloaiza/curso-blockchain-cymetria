@@ -1,36 +1,27 @@
-// Lógica para HD Wallet (BIP-39 + BIP-44) en Ethereum
-// -----------------------------------------------------
-// Este módulo concentra funciones para trabajar con frases semilla (mnemonics)
-// y derivación determinística de múltiples cuentas (Hierarchical Deterministic).
+// Lógica para HD Wallet (BIP-39 + BIP-44) en Solana
+// ---------------------------------------------------
+// Este módulo trabaja con frases semilla (mnemonic) y derivación determinística
+// de múltiples cuentas para Solana utilizando ed25519 y la ruta estándar:
+//   m/44'/501'/{account}'/{change}/{index}
+// Donde 501 es el coin_type asignado a Solana.
 //
-// Conceptos clave resumidos:
-// - BIP-39 define cómo crear una frase mnemónica (12/24 palabras) que se convierte
-//   en una semilla binaria.
-// - BIP-44 define la estructura de rutas de derivación para múltiples monedas y
-//   cuentas. Para Ethereum se usa la ruta: m/44'/60'/account'/change/index
-//   donde 60 es el coin_type de Ethereum.
-// - Cada índice genera una nueva clave privada y dirección, pero todo es
-//   reproducible a partir de la misma frase semilla (determinístico).
-//
-// ADVERTENCIA: Este código es educativo. No utilices la misma seed en producción.
+// ADVERTENCIA: Código educativo. No reutilices seeds de prueba en producción.
 
-import { HDNodeWallet, Wallet, wordlists } from "ethers";
+import { Keypair } from "@solana/web3.js";
+import * as bip39 from "bip39";
+import { derivePath } from "ed25519-hd-key";
+import bs58 from "bs58";
 
 export type HDAccount = {
-  index: number;          // Índice i en la ruta m/44'/60'/0'/0/i
+  index: number;          // Índice i en la ruta m/44'/501'/account'/change/index
   path: string;           // Ruta completa usada para derivar (BIP-44)
-  address: string;        // Dirección Ethereum (checksum EIP-55)
-  privateKey: string;     // Clave privada derivada en hex (0x...)
+  address: string;        // PublicKey en base58 (Solana)
+  privateKey: string;     // SecretKey (64 bytes) en base58
 };
 
 // Conjunto de conteos de palabras válidos según BIP-39 (modos comunes)
 const VALID_WORD_COUNTS = new Set([12, 15, 18, 21, 24]);
 
-// Normaliza la mnemónica a una forma canónica:
-// - NFKD para separar diacríticos (estándar BIP-39)
-// - minúsculas
-// - colapsar espacios (tabs, saltos de línea) a un solo espacio
-// - trim de extremos
 function canonicalizarMnemonic(phrase: string): string {
   return phrase
     .normalize("NFKD")
@@ -39,7 +30,6 @@ function canonicalizarMnemonic(phrase: string): string {
     .replace(/\s+/gu, " ");
 }
 
-// Valida que la mnemónica tenga un conteo de palabras soportado.
 function assertValidWordCount(phrase: string) {
   const words = phrase.split(" ").filter(Boolean);
   if (!VALID_WORD_COUNTS.has(words.length)) {
@@ -49,61 +39,37 @@ function assertValidWordCount(phrase: string) {
   }
 }
 
-// Verifica que todas las palabras existan en el diccionario BIP-39 en inglés
-function assertWordsInWordlist(phrase: string) {
-  const wl = wordlists.en;
-  const words = phrase.split(" ").filter(Boolean);
-  for (const w of words) {
-    if (wl.getWordIndex(w) < 0) {
-      throw new Error(
-        `La palabra "${w}" no pertenece al wordlist en inglés (BIP-39).`
-      );
-    }
-  }
-}
-
-// Genera y retorna una frase mnemónica BIP-39 (12 palabras por defecto en ethers)
+// Genera y retorna una mnemónica BIP-39 (12 palabras por defecto)
 export function createMnemonic(): string {
-  const w = Wallet.createRandom(); // En ethers v6 esto devuelve un HDNodeWallet con mnemónica EN
-  const phrase = w.mnemonic?.phrase;
-  if (!phrase) {
-    throw new Error("No fue posible generar una frase mnemónica");
-  }
-  // Devolvemos la versión canónica para evitar problemas de espacios/Unicode
+  const phrase = bip39.generateMnemonic(128); // 128 bits de entropía → 12 palabras
   return canonicalizarMnemonic(phrase);
 }
 
-// Deriva una sola cuenta HD a partir de una frase y un índice, usando la ruta BIP-44
-// Ruta por defecto: m/44'/60'/{account}'/{change}/{index}
+// Deriva una cuenta de Solana a partir de la mnemónica y un índice, usando BIP-44 ed25519
+// Ruta: m/44'/501'/{account}'/{change}/{index}
 export function deriveAccount(phrase: string, index: number, account = 0, change = 0): HDAccount {
-  // En ethers v6, HDNodeWallet.fromPhrase(phrase) por defecto devuelve un nodo ya ubicado en
-  // m/44'/60'/0'/0/0 (profundidad 5). Si intentamos derivar una ruta ABSOLUTA que empiece por
-  // "m/" desde un nodo que no está en la raíz, ethers lanza el error:
-  //   "cannot derive root path (i.e. path starting with \"m/\") for a node at non-zero depth"
-  // Para evitarlo, pedimos explícitamente el nodo raíz (ruta "m") y desde allí derivamos toda la ruta BIP-44.
   const canonical = canonicalizarMnemonic(phrase);
-
-  if (!canonical) {
-    throw new Error("La frase mnemónica no puede estar vacía");
-  }
-  // Validación didáctica previa (longitud típica de BIP-39)
+  if (!canonical) throw new Error("La frase mnemónica no puede estar vacía");
   assertValidWordCount(canonical);
-  // Validamos adicionalmente que todas las palabras existan en el diccionario EN
-  assertWordsInWordlist(canonical);
-  // Fijamos wordlist a inglés (objeto) para evitar autodetección ambigua
-  // y solicitamos el nodo raíz ("m") para derivar rutas absolutas completas.
-  const root = HDNodeWallet.fromPhrase(canonical, undefined, "m", wordlists.en); // profundidad 0 (root, usando wordlists.en)
-  const path = `m/44'/60'/${account}'/${change}/${index}`;
-  const node = root.derivePath(path); // node es un HDNodeWallet con address y privateKey
+
+  // BIP-39 → seed (512 bits). Usamos síncrono para simplicidad en UI.
+  const seed = bip39.mnemonicToSeedSync(canonical);
+
+  const path = `m/44'/501'/${account}'/${change}/${index}`;
+  // Derivación ed25519 (ed25519-hd-key)
+  const { key } = derivePath(path, seed.toString("hex")); // key: Buffer de 32 bytes
+
+  // En Solana, a partir de una seed de 32 bytes construimos el Keypair
+  const kp = Keypair.fromSeed(key);
+
   return {
     index,
     path,
-    address: node.address,
-    privateKey: node.privateKey,
+    address: kp.publicKey.toBase58(),
+    privateKey: bs58.encode(kp.secretKey),
   };
 }
 
-// Deriva múltiples cuentas consecutivas desde index=0 hasta count-1
 export function deriveMany(phrase: string, count: number, account = 0, change = 0): HDAccount[] {
   const res: HDAccount[] = [];
   for (let i = 0; i < count; i++) {

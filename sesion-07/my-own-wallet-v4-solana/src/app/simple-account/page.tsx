@@ -36,7 +36,7 @@ export default function SimpleAccountPage() {
     setShowPk(false);
   };
 
-  // Genera una cuenta simple aleatoria usando ethers.js (ver módulo simple.ts)
+  // Genera una cuenta simple aleatoria (Solana) usando el módulo simple.ts
   const handleGenerate = () => {
     const w = createSimpleWallet();
     setAddress(w.address);
@@ -51,7 +51,7 @@ export default function SimpleAccountPage() {
     if (!pk) return;
     if (!isValidPrivateKey(pk)) {
       // Alerta educativa para explicar el error de formato/longitud.
-      alert("La clave privada no es válida. Debe ser hex (64 bytes) con o sin prefijo 0x.");
+      alert("La clave secreta no es válida. Debe ser base58 (64 bytes).");
       return;
     }
     try {
@@ -70,11 +70,11 @@ export default function SimpleAccountPage() {
       <main className="relative z-10 mx-auto flex max-w-3xl flex-col items-center gap-8 px-6 pb-24 pt-24 text-center sm:pt-28">
         <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/10">
           <span>🔑</span>
-          <span>Cuenta simple · Ethereum</span>
+          <span>Cuenta simple · Solana</span>
         </div>
 
         <h1 className="text-balance bg-gradient-to-r from-emerald-300 via-cyan-300 to-indigo-300 bg-clip-text text-3xl font-semibold leading-tight text-transparent sm:text-4xl">
-          Crear cuenta simple ETH
+          Crear cuenta simple SOL
         </h1>
         <p className="text-pretty max-w-2xl text-sm leading-relaxed text-white/80 sm:text-base">
           Aquí tendrás un espacio para visualizar la dirección y la clave privada de una cuenta simple. Mantén tus claves seguras y <span className="font-semibold text-white">nunca</span> las compartas.
@@ -94,13 +94,13 @@ export default function SimpleAccountPage() {
 
             {/* Address */}
             <div>
-              <label className="mb-2 block text-sm font-medium text-white/80">Ethereum Address</label>
+              <label className="mb-2 block text-sm font-medium text-white/80">Dirección (PublicKey base58)</label>
               <div className="flex items-center gap-2">
                 <input
                   className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white/90 placeholder-white/40 outline-none transition focus:ring-2 focus:ring-emerald-300/50"
                   value={address}
                   onChange={(e) => setAddress(e.target.value)}
-                  placeholder="0x…"
+                  placeholder="Ej: 9xQeW..."
                   inputMode="text"
                   spellCheck={false}
                   autoComplete="off"
@@ -115,10 +115,10 @@ export default function SimpleAccountPage() {
               </div>
             </div>
 
-            {/* Private Key */}
+            {/* Secret Key */}
             <div>
               <div className="mb-2 flex items-center justify-between">
-                <label className="block text-sm font-medium text-white/80">Private Key</label>
+                <label className="block text-sm font-medium text-white/80">Secret Key (base58)</label>
                 <button
                   onClick={() => setShowPk((v) => !v)}
                   className="text-xs text-cyan-200 underline underline-offset-2 transition hover:text-cyan-100"
@@ -134,7 +134,7 @@ export default function SimpleAccountPage() {
                   value={privateKey}
                   onChange={(e) => setPrivateKey(e.target.value)}
                   onBlur={handlePkBlur}
-                  placeholder="Clave privada (0x…)"
+                  placeholder="Base58 (64 bytes)"
                   inputMode="text"
                   spellCheck={false}
                   autoComplete="off"
@@ -142,7 +142,7 @@ export default function SimpleAccountPage() {
                 <button
                   onClick={() => copyToClipboard(privateKey, "pk")}
                   className="rounded-xl border border-cyan-300/30 bg-cyan-400/10 px-3 py-2 text-sm font-medium text-cyan-200 transition hover:bg-cyan-400/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
-                  aria-label="Copiar private key"
+                  aria-label="Copiar secret key"
                 >
                   {copied.field === "pk" ? "Copiado" : "Copiar"}
                 </button>

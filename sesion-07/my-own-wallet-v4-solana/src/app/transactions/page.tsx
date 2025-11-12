@@ -2,13 +2,13 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { JsonRpcProvider, formatEther } from "ethers";
+import { Connection, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import {
-  createProvider,
-  sendEthTransaction,
+  createConnection,
+  sendSolTransaction,
   waitForTxConfirmation,
   getExplorerTxUrl,
-} from "../../lib/tx/eth";
+} from "../../lib/tx/solana";
 import {
   createSimpleWallet,
   addressFromPrivateKey,
@@ -16,65 +16,70 @@ import {
 } from "../../lib/wallet/simple";
 
 // Presets de red (editable por el usuario)
-// Nota: algunos RPC públicos bloquean peticiones desde el navegador por CORS.
-// Usamos endpoints de PublicNode que suelen permitir CORS sin API key.
+// Para Solana usamos clusters: devnet, testnet, mainnet-beta
 const NETWORK_PRESETS = [
   {
-    key: "mainnet",
-    name: "Ethereum Mainnet",
-    chainId: 1,
-    defaultRpc: "https://ethereum.publicnode.com",
-    explorer: "https://etherscan.io",
+    key: "mainnet-beta",
+    name: "Solana Mainnet",
+    cluster: "mainnet-beta" as const,
+    defaultRpc: "https://api.mainnet-beta.solana.com",
+    explorer: "https://explorer.solana.com",
   },
   {
-    key: "sepolia",
-    name: "Sepolia Testnet",
-    chainId: 11155111,
-    defaultRpc: "https://ethereum-sepolia-rpc.publicnode.com",
-    explorer: "https://sepolia.etherscan.io",
+    key: "testnet",
+    name: "Solana Testnet",
+    cluster: "testnet" as const,
+    defaultRpc: "https://api.testnet.solana.com",
+    explorer: "https://explorer.solana.com",
+  },
+  {
+    key: "devnet",
+    name: "Solana Devnet (recomendado)",
+    cluster: "devnet" as const,
+    defaultRpc: "https://api.devnet.solana.com",
+    explorer: "https://explorer.solana.com",
   },
 ] as const;
 
 type PresetKey = typeof NETWORK_PRESETS[number]["key"];
 
+type NetInfo = { cluster: "devnet" | "testnet" | "mainnet-beta"; slot?: number } | null;
+
 export default function TransactionsPage() {
-  // Red y provider
-  const [preset, setPreset] = useState<PresetKey>("sepolia");
+  // Red y conexión
+  const [preset, setPreset] = useState<PresetKey>("devnet");
   const [rpcUrl, setRpcUrl] = useState(
-    NETWORK_PRESETS.find((p) => p.key === "sepolia")!.defaultRpc
+    NETWORK_PRESETS.find((p) => p.key === "devnet")!.defaultRpc
   );
   const [connecting, setConnecting] = useState(false);
-  const [provider, setProvider] = useState<JsonRpcProvider | null>(null);
-  const [netInfo, setNetInfo] = useState<{ name?: string; chainId?: number } | null>(null);
+  const [connection, setConnection] = useState<Connection | null>(null);
+  const [netInfo, setNetInfo] = useState<NetInfo>(null);
   const [connError, setConnError] = useState<string | null>(null);
 
-  const explorerBase = useMemo(() => {
-    const p = NETWORK_PRESETS.find((x) => x.key === preset);
-    return p?.explorer;
-  }, [preset]);
+  const selectedPreset = useMemo(() => NETWORK_PRESETS.find((x) => x.key === preset)!, [preset]);
+  const explorerBase = selectedPreset.explorer;
 
   // Wallet simple (creación/importación)
-  const [address, setAddress] = useState("");
-  const [privateKey, setPrivateKey] = useState("");
+  const [address, setAddress] = useState(""); // PublicKey base58
+  const [privateKey, setPrivateKey] = useState(""); // SecretKey base58 (64 bytes)
   const [showPk, setShowPk] = useState(false);
   const [copy, setCopy] = useState<null | "address" | "pk">(null);
 
   // Saldo y estados
-  const [balanceEth, setBalanceEth] = useState<string>("0");
+  const [balanceSol, setBalanceSol] = useState<string>("0");
   const [loadingBal, setLoadingBal] = useState(false);
   const [balError, setBalError] = useState<string | null>(null);
 
   // Envío de transacciones
-  const [to, setTo] = useState("");
-  const [amount, setAmount] = useState("");
+  const [to, setTo] = useState(""); // PublicKey destino (base58)
+  const [amount, setAmount] = useState(""); // SOL en unidades humanas
   const [sending, setSending] = useState(false);
-  const [txHash, setTxHash] = useState<string | null>(null);
+  const [signature, setSignature] = useState<string | null>(null);
   const [txError, setTxError] = useState<string | null>(null);
-  // Estados relacionados con confirmación de la transacción (educativo)
+  // Estados relacionados con confirmación (educativo)
   const [confirming, setConfirming] = useState(false);
   const [txConfirmed, setTxConfirmed] = useState<boolean | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
-  const [receiptBlock, setReceiptBlock] = useState<number | null>(null);
 
   // Copiar al clipboard
   const copyToClipboard = async (text: string, field: "address" | "pk") => {
@@ -91,30 +96,23 @@ export default function TransactionsPage() {
     setRpcUrl(p.defaultRpc);
   }, [preset]);
 
-  // Conectar provider
+  // Conectar Connection
   const handleConnect = async () => {
-    // Conectar a la red elegida a través del RPC indicado.
-    // Usamos la función de lib para mantener esta vista ligera y pedagógica.
     setConnecting(true);
     setConnError(null);
     setNetInfo(null);
-    setProvider(null);
+    setConnection(null);
     try {
-      const prov = createProvider(rpcUrl);
-      // Asignamos el provider temprano para permitir reintentos y refrescos manuales
-      setProvider(prov);
-
-      // Sonda rápida: pedimos la red y un número de bloque para comprobar salud del RPC
-      const net = await prov.getNetwork();
-      await prov.getBlockNumber();
-
-      setNetInfo({ name: String(net.name), chainId: Number(net.chainId) });
+      const conn = createConnection(rpcUrl);
+      setConnection(conn);
+      // Sondas rápidas para salud del RPC
+      const slot = await conn.getSlot();
+      setNetInfo({ cluster: selectedPreset.cluster, slot });
     } catch (err: any) {
       const raw = err?.message || String(err);
-      const hint =
-        raw?.toLowerCase().includes("fetch") || raw?.toLowerCase().includes("cors")
-          ? "El RPC bloqueó la petición del navegador (CORS) o la URL no responde. Prueba con otro endpoint público o usa una API key (Infura/Alchemy)."
-          : "No se pudo conectar al RPC";
+      const hint = raw?.toLowerCase().includes("fetch")
+        ? "El RPC no respondió (CORS o red). Prueba con otro endpoint público."
+        : "No se pudo conectar al RPC";
       setConnError(`${hint}${raw ? ` · Detalle: ${raw}` : ""}`);
     } finally {
       setConnecting(false);
@@ -126,31 +124,32 @@ export default function TransactionsPage() {
     const w = createSimpleWallet();
     setAddress(w.address);
     setPrivateKey(w.privateKey);
-    setTxHash(null);
+    setSignature(null);
   };
 
-  // Importar: al salir del input de PK, si es válida, derivar address
+  // Importar: al salir del input de secretKey, si es válida, derivar publicKey
   const handlePkBlur: React.FocusEventHandler<HTMLInputElement> = (e) => {
-    const pk = e.currentTarget.value.trim();
-    if (!pk) return;
-    if (!isValidPrivateKey(pk)) {
-      alert("La clave privada no es válida. Debe ser hex (32 bytes) con o sin 0x.");
+    const sk = e.currentTarget.value.trim();
+    if (!sk) return;
+    if (!isValidPrivateKey(sk)) {
+      alert("La clave secreta no es válida. Debe ser base58 (64 bytes).");
       return;
     }
     try {
-      const addr = addressFromPrivateKey(pk);
-      setAddress(addr);
+      const pub = addressFromPrivateKey(sk);
+      setAddress(pub);
     } catch {}
   };
 
-  // Cargar saldo cuando haya provider + address
+  // Cargar saldo cuando haya connection + address
   const refreshBalance = async () => {
-    if (!provider || !address) return;
+    if (!connection || !address) return;
     setLoadingBal(true);
     setBalError(null);
     try {
-      const bal = await provider.getBalance(address);
-      setBalanceEth(formatEther(bal));
+      const lamports = await connection.getBalance(new PublicKey(address));
+      const sol = lamports / LAMPORTS_PER_SOL;
+      setBalanceSol(sol.toString());
     } catch (err: any) {
       setBalError(err?.message ?? "No fue posible obtener el saldo.");
     } finally {
@@ -159,73 +158,66 @@ export default function TransactionsPage() {
   };
 
   useEffect(() => {
-    setBalanceEth("0");
-    if (provider && address) {
+    setBalanceSol("0");
+    if (connection && address) {
       refreshBalance();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [provider, address]);
+  }, [connection, address]);
 
-  // Enviar transacción usando la lógica separada en lib/tx/eth
+  // Enviar transacción nativa SOL usando la lógica separada
   const handleSend = async () => {
-    // Limpiamos errores previos y estados de confirmación
     setTxError(null);
-    setTxHash(null);
+    setSignature(null);
     setTxConfirmed(null);
     setConfirmError(null);
-    setReceiptBlock(null);
 
-    if (!provider) {
-      setTxError("Conéctate primero a una red (RPC)");
+    if (!connection) {
+      setTxError("Conéctate primero a un RPC de Solana");
       return;
     }
     if (!privateKey || !isValidPrivateKey(privateKey)) {
-      setTxError("Debes tener una wallet válida (clave privada válida).");
+      setTxError("Debes tener una wallet válida (secret key base58 de 64 bytes).");
       return;
     }
     const amt = Number(amount);
     if (!amount || isNaN(amt) || amt <= 0) {
-      setTxError("Ingresa un monto válido en ETH.");
+      setTxError("Ingresa un monto válido en SOL.");
       return;
     }
 
     try {
       setSending(true);
-      const { txHash } = await sendEthTransaction({
-        provider,
-        privateKey,
+      const { signature } = await sendSolTransaction({
+        connection,
+        secretKeyBase58: privateKey,
         to,
-        amountEth: amount,
+        amountSol: amount,
       });
-      setTxHash(txHash);
-      // Nota: No esperamos confirmaciones aquí para no bloquear la UI.
-      // Ofrecemos un botón para verificar confirmación cuando el usuario lo desee.
+      setSignature(signature);
+      // Tras enviar y confirmar (sendAndConfirmTransaction), refrescamos saldo
+      await refreshBalance();
     } catch (err: any) {
-      // ethers puede anidar mensajes en info.error.message
-      setTxError(err?.info?.error?.message ?? err?.message ?? "Error al enviar la transacción.");
+      setTxError(err?.message ?? "Error al enviar la transacción.");
     } finally {
       setSending(false);
     }
   };
 
-  // Verificar si la transacción ya fue confirmada en la red
+  // Verificar si la transacción ya fue confirmada (útil si cambiamos el commitment)
   const handleCheckConfirmation = async () => {
-    if (!provider || !txHash) return;
+    if (!connection || !signature) return;
     setConfirmError(null);
     setConfirming(true);
     try {
-      const { confirmed, receipt } = await waitForTxConfirmation({
-        provider,
-        txHash,
-        confirmations: 1, // educativo: 1 confirmación suele ser suficiente en testnet
-        timeoutMs: 60000, // 60s de espera para evitar bloquear indefinidamente
+      const { confirmed } = await waitForTxConfirmation({
+        connection,
+        signature,
+        commitment: "confirmed",
+        timeoutMs: 60000,
       });
       setTxConfirmed(confirmed);
-      setReceiptBlock(receipt?.blockNumber ?? null);
-      // Si se confirma, refrescamos el saldo por conveniencia
-      if (confirmed) {
-        await refreshBalance();
-      }
+      if (confirmed) await refreshBalance();
     } catch (err: any) {
       setConfirmError(err?.message ?? "No fue posible verificar la confirmación.");
     } finally {
@@ -233,10 +225,10 @@ export default function TransactionsPage() {
     }
   };
 
-  // Utilidad: construir link al explorador (Etherscan/SepoliaScan) usando lib
-  const renderTxLink = (hash: string) => {
-    const url = getExplorerTxUrl(explorerBase, hash);
-    if (!url) return hash;
+  // Utilidad: construir link al explorador de Solana
+  const renderTxLink = (sig: string) => {
+    const url = getExplorerTxUrl(explorerBase, sig, selectedPreset.cluster);
+    if (!url) return sig;
     return (
       <a
         href={url}
@@ -244,7 +236,7 @@ export default function TransactionsPage() {
         rel="noreferrer"
         className="text-emerald-200 underline underline-offset-2 hover:text-emerald-100"
       >
-        {hash.slice(0, 10)}…
+        {sig.slice(0, 10)}…
       </a>
     );
   };
@@ -257,14 +249,14 @@ export default function TransactionsPage() {
       <main className="relative z-10 mx-auto flex max-w-3xl flex-col items-center gap-8 px-6 pb-24 pt-24 text-center sm:pt-28">
         <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/10">
           <span>🧾</span>
-          <span>Transacciones · Ethereum</span>
+          <span>Transacciones · Solana</span>
         </div>
 
         <h1 className="text-balance bg-gradient-to-r from-emerald-300 via-cyan-300 to-indigo-300 bg-clip-text text-3xl font-semibold leading-tight text-transparent sm:text-4xl">
           Enviar y recibir · Saldo · Wallet simple
         </h1>
         <p className="text-pretty max-w-2xl text-sm leading-relaxed text-white/80 sm:text-base">
-          Esta sección es sólo educativa. No uses claves privadas reales. Prueba preferiblemente en Sepolia.
+          Esta sección es educativa. No uses claves reales. Para pruebas usa Devnet.
         </p>
 
         <div className="mx-auto w-full max-w-2xl space-y-8">
@@ -299,14 +291,13 @@ export default function TransactionsPage() {
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
               <div className="text-sm text-white/70">
                 {connecting && <span>Conectando…</span>}
-                {!connecting && netInfo?.chainId && (
+                {!connecting && netInfo?.cluster && (
                   <span>
-                    Conectado a chainId <span className="font-mono">{netInfo.chainId}</span>
-                    {" "}
-                    {netInfo?.name ? `(${netInfo.name})` : ""}
+                    Conectado a <span className="font-mono">{netInfo.cluster}</span>
+                    {netInfo?.slot ? ` · slot ${netInfo.slot}` : ""}
                   </span>
                 )}
-                {!connecting && !netInfo?.chainId && <span>No conectado</span>}
+                {!connecting && !netInfo?.cluster && <span>No conectado</span>}
               </div>
               <div className="flex items-center gap-3">
                 <button
@@ -318,7 +309,7 @@ export default function TransactionsPage() {
                 </button>
                 <button
                   onClick={() => {
-                    setProvider(null);
+                    setConnection(null);
                     setNetInfo(null);
                     setConnError(null);
                   }}
@@ -353,13 +344,13 @@ export default function TransactionsPage() {
 
             <div className="mt-4 grid gap-4">
               <div>
-                <label className="mb-2 block text-sm font-medium text-white/80">Address</label>
+                <label className="mb-2 block text-sm font-medium text-white/80">Dirección (PublicKey base58)</label>
                 <div className="flex items-center gap-2">
                   <input
                     className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white/90 placeholder-white/40 outline-none transition focus:ring-2 focus:ring-emerald-300/50"
                     value={address}
                     onChange={(e) => setAddress(e.target.value)}
-                    placeholder="0x…"
+                    placeholder="Ej: 9xQeW..."
                     spellCheck={false}
                     autoComplete="off"
                   />
@@ -374,7 +365,7 @@ export default function TransactionsPage() {
 
               <div>
                 <div className="mb-2 flex items-center justify-between">
-                  <label className="block text-sm font-medium text-white/80">Private Key</label>
+                  <label className="block text-sm font-medium text-white/80">Secret Key (base58)</label>
                   <button
                     onClick={() => setShowPk((v) => !v)}
                     className="text-xs text-cyan-200 underline underline-offset-2 transition hover:text-cyan-100"
@@ -389,7 +380,7 @@ export default function TransactionsPage() {
                     value={privateKey}
                     onChange={(e) => setPrivateKey(e.target.value)}
                     onBlur={handlePkBlur}
-                    placeholder="0x…"
+                    placeholder="Base58 (64 bytes)"
                     spellCheck={false}
                     autoComplete="off"
                   />
@@ -401,7 +392,7 @@ export default function TransactionsPage() {
                   </button>
                 </div>
                 <p className="mt-2 text-xs text-white/60">
-                  No compartas esta clave. Usa únicamente testnets en prácticas.
+                  No compartas esta clave. Usa únicamente Devnet para prácticas.
                 </p>
               </div>
             </div>
@@ -413,10 +404,10 @@ export default function TransactionsPage() {
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <div className="mb-2 flex items-center justify-between">
-                  <label className="block text-sm font-medium text-white/80">Saldo actual (ETH)</label>
+                  <label className="block text-sm font-medium text-white/80">Saldo actual (SOL)</label>
                   <button
                     onClick={refreshBalance}
-                    disabled={!provider || !address || loadingBal}
+                    disabled={!connection || !address || loadingBal}
                     className="text-xs text-emerald-200 underline underline-offset-2 disabled:opacity-60 hover:text-emerald-100"
                   >
                     {loadingBal ? "Actualizando…" : "Refrescar"}
@@ -426,7 +417,7 @@ export default function TransactionsPage() {
                   {balError ? (
                     <span className="text-red-300">{balError}</span>
                   ) : (
-                    <span className="font-mono">{balanceEth}</span>
+                    <span className="font-mono">{balanceSol}</span>
                   )}
                 </div>
               </div>
@@ -438,7 +429,7 @@ export default function TransactionsPage() {
                     className="w-full rounded-xl border border-white/10 bg-white/0 px-4 py-3 text-white/90"
                     value={address}
                     readOnly
-                    placeholder="0x…"
+                    placeholder="Ej: 9xQeW..."
                   />
                   <button
                     onClick={() => copyToClipboard(address, "address")}
@@ -448,7 +439,7 @@ export default function TransactionsPage() {
                   </button>
                 </div>
                 <p className="mt-2 text-xs text-white/60">
-                  Comparte esta dirección para recibir fondos (usa Sepolia para pruebas).
+                  Comparte esta dirección para recibir fondos (usa Devnet para pruebas).
                 </p>
               </div>
             </div>
@@ -459,16 +450,16 @@ export default function TransactionsPage() {
             <h2 className="mb-4 text-lg font-semibold text-white">4) Enviar</h2>
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <label className="mb-2 block text-sm font-medium text-white/80">Para (address)</label>
+                <label className="mb-2 block text-sm font-medium text-white/80">Para (PublicKey base58)</label>
                 <input
                   value={to}
                   onChange={(e) => setTo(e.target.value)}
-                  placeholder="0x…"
+                  placeholder="Ej: H3v9..."
                   className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white/90 placeholder-white/40 outline-none transition focus:ring-2 focus:ring-indigo-300/50"
                 />
               </div>
               <div>
-                <label className="mb-2 block text-sm font-medium text-white/80">Monto (ETH)</label>
+                <label className="mb-2 block text-sm font-medium text-white/80">Monto (SOL)</label>
                 <input
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
@@ -491,11 +482,11 @@ export default function TransactionsPage() {
               </button>
             </div>
             {txError && <p className="mt-3 text-sm text-red-300">{txError}</p>}
-            {txHash && (
+            {signature && (
               <div className="mt-4 space-y-2">
-                {/* Mostramos el identificador de transacción (txID/txHash) */}
+                {/* Mostramos el identificador de transacción (signature) */}
                 <div className="text-sm text-white/80">
-                  <span className="text-white/70">TX ID:</span> <span className="font-mono">{renderTxLink(txHash)}</span>
+                  <span className="text-white/70">Signature:</span> <span className="font-mono">{renderTxLink(signature)}</span>
                 </div>
                 {/* Acciones: verificar confirmación y abrir en el explorador */}
                 <div className="flex flex-wrap items-center gap-3">
@@ -506,21 +497,21 @@ export default function TransactionsPage() {
                   >
                     {confirming ? "Verificando…" : "Verificar confirmación"}
                   </button>
-                  {getExplorerTxUrl(explorerBase, txHash) && (
+                  {getExplorerTxUrl(explorerBase, signature, selectedPreset.cluster) && (
                     <a
-                      href={getExplorerTxUrl(explorerBase, txHash)!}
+                      href={getExplorerTxUrl(explorerBase, signature, selectedPreset.cluster)!}
                       target="_blank"
                       rel="noreferrer"
                       className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-500 px-3 py-2 text-sm font-medium text-emerald-950 shadow-lg transition hover:translate-y-[-1px] hover:bg-emerald-400 hover:shadow-emerald-500/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
                     >
-                      Ver en Etherscan
+                      Ver en Explorer
                     </a>
                   )}
                 </div>
                 {/* Estado de confirmación */}
                 {txConfirmed !== null && (
                   txConfirmed ? (
-                    <p className="text-sm text-emerald-300">Confirmada ✅ {receiptBlock ? `(bloque #${receiptBlock})` : ""}</p>
+                    <p className="text-sm text-emerald-300">Confirmada ✅</p>
                   ) : (
                     <p className="text-sm text-yellow-300">Aún sin confirmar ⏳. Intenta nuevamente en unos segundos.</p>
                   )

@@ -1,51 +1,47 @@
-// Lógica para cuenta simple de Ethereum (sin HD)
-// -------------------------------------------------
-// Este módulo encapsula la generación y validación de cuentas "simples"
-// (una sola clave privada) utilizando ethers.js v6. Está separado de la vista
-// para mantener una clara separación de responsabilidades (UI vs lógica) y
-// facilitar su explicación en un curso.
+// Lógica para cuenta simple de Solana (sin HD)
+// ----------------------------------------------
+// Este módulo encapsula la generación e importación de cuentas simples en Solana
+// (par de claves ed25519) usando @solana/web3.js. Mantiene una API similar a la de
+// Ethereum para reutilizar la UI existente del curso.
 //
 // Conceptos clave:
-// - La cuenta simple se define por una clave privada en la curva elíptica
-//   secp256k1. A partir de esa clave se obtiene la clave pública, y su hash
-//   (Keccak-256) determina la dirección Ethereum (últimos 20 bytes, con checksum EIP-55).
-// - NUNCA compartas tu clave privada real. Este código es solo educativo.
+// - En Solana, las direcciones son la clave pública (PublicKey) codificada en base58.
+// - La clave "privada" que solemos exportar en demos es el secretKey (64 bytes)
+//   que contiene seed (32) + publicKey (32), codificado en base58.
+// - NUNCA compartas tu clave secreta real. Esto es sólo educativo.
 
-import { Wallet } from "ethers";
+import { Keypair } from "@solana/web3.js";
+import bs58 from "bs58";
 
 export type SimpleAccount = {
-  address: string; // Dirección Ethereum en formato checksum (EIP-55)
-  privateKey: string; // Clave privada en hex con prefijo 0x
+  address: string; // PublicKey en base58
+  privateKey: string; // SecretKey en base58 (64 bytes)
 };
 
-// Genera una cuenta aleatoria nueva (clave privada + address)
-// Nota: Wallet.createRandom() usa un RNG seguro bajo el capó.
+// Genera una cuenta aleatoria nueva (Keypair)
 export function createSimpleWallet(): SimpleAccount {
-  const wallet = Wallet.createRandom();
+  const kp = Keypair.generate();
   return {
-    address: wallet.address,
-    privateKey: wallet.privateKey,
+    address: kp.publicKey.toBase58(),
+    privateKey: bs58.encode(kp.secretKey),
   };
 }
 
-// Dada una clave privada (hex), calcula su dirección Ethereum checksum
-// Lanza un error si la clave es inválida.
-export function addressFromPrivateKey(privateKey: string): string {
-  // Normalizamos: si viene sin 0x, ethers lo soporta si el tamaño es válido,
-  // pero es mejor estandarizar con el prefijo.
-  const normalized = privateKey.trim().startsWith("0x")
-    ? privateKey.trim()
-    : ("0x" + privateKey.trim());
-
-  // Si la clave no es válida, el constructor Wallet lanzará un error.
-  const wallet = new Wallet(normalized);
-  return wallet.address; // ethers devuelve en formato checksum (EIP-55)
+// Dada una secretKey en base58 (64 bytes), devuelve la PublicKey en base58
+// Mantiene el nombre para compatibilidad con la UI existente.
+export function addressFromPrivateKey(secretKeyBase58: string): string {
+  const bytes = bs58.decode(secretKeyBase58.trim());
+  if (bytes.length !== 64) {
+    throw new Error("La clave secreta debe tener 64 bytes codificados en base58.");
+  }
+  const kp = Keypair.fromSecretKey(Uint8Array.from(bytes));
+  return kp.publicKey.toBase58();
 }
 
-// Validación básica (opcional): retorna true si la clave privada es válida.
-export function isValidPrivateKey(privateKey: string): boolean {
+// Validación básica: true si la secretKey base58 permite reconstruir el Keypair
+export function isValidPrivateKey(secretKeyBase58: string): boolean {
   try {
-    addressFromPrivateKey(privateKey);
+    addressFromPrivateKey(secretKeyBase58);
     return true;
   } catch {
     return false;
